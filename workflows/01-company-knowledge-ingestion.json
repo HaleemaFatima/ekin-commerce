@@ -1,0 +1,74 @@
+{
+  "name": "01 - Company Knowledge Ingestion - Supabase RAG",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 01 — Company Knowledge Ingestion\n\nUpload company documents through the n8n form. The workflow extracts text, splits it into chunks, creates 3072-dimensional Gemini embeddings, and inserts them into the Supabase `documents` table.\n\n### After importing\n1. Open **Supabase Vector Store** and select/create the Supabase credential.\n2. Open **Embeddings Google Gemini** and select/create the Gemini credential.\n3. Click **Test workflow**, open the form, and upload a small document.\n\nNever place the Supabase service-role key in a website or frontend.",
+        "height": 420,
+        "width": 620
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [0,0],
+      "id": "d8877ed3-a9dd-42e3-a134-998fc2d74211",
+      "name": "Setup Instructions"
+    },
+    {
+      "parameters": {
+        "formTitle": "Upload Company Knowledge",
+        "formDescription": "Upload a company document to add it to the Enterprise RAG knowledge base. Supported formats: PDF, DOCX, TXT, and CSV.",
+        "formFields": {"values":[
+          {"fieldLabel":"Company Name","placeholder":"Example Enterprise Ltd.","requiredField":true},
+          {"fieldLabel":"Document Category","fieldType":"dropdown","fieldOptions":{"values":[{"option":"Company Overview"},{"option":"Products and Services"},{"option":"Policies"},{"option":"FAQs"},{"option":"Support"},{"option":"Other"}]},"requiredField":true},
+          {"fieldLabel":"Company Document","fieldType":"file","multipleFiles":false,"acceptFileTypes":".pdf,.docx,.txt,.csv","requiredField":true}
+        ]},
+        "responseMode": "lastNode",
+        "options": {"buttonLabel":"Add to Knowledge Base"}
+      },
+      "type":"n8n-nodes-base.formTrigger","typeVersion":2.3,"position":[304,352],"id":"73d1e626-a98e-468a-8664-61d48ee0a793","name":"Upload Company Document"
+    },
+    {
+      "parameters":{"mode":"insert","tableName":{"__rl":true,"value":"documents","mode":"list","cachedResultName":"documents"},"options":{"queryName":"match_documents"}},
+      "type":"@n8n/n8n-nodes-langchain.vectorStoreSupabase","typeVersion":1.3,"position":[672,352],"id":"8d5f37f9-2a22-4ed6-a358-8c80ffd69abe","name":"Supabase Vector Store"
+    },
+    {
+      "parameters":{"modelName":"models/gemini-embedding-001"},"type":"@n8n/n8n-nodes-langchain.embeddingsGoogleGemini","typeVersion":1,"position":[592,560],"id":"40e7a292-d0f0-45fa-81f0-d90e42fc64e9","name":"Embeddings Google Gemini"
+    },
+    {
+      "parameters":{"dataType":"binary","textSplittingMode":"custom","options":{"metadata":{"metadataValues":[
+        {"name":"company","value":"={{ $('Upload Company Document').item.json['Company Name'] || 'Enterprise Company' }}"},
+        {"name":"category","value":"={{ $('Upload Company Document').item.json['Document Category'] || 'Other' }}"},
+        {"name":"source","value":"={{ Object.values($('Upload Company Document').item.binary ?? {})[0]?.fileName || 'uploaded-document' }}"},
+        {"name":"ingested_at","value":"={{ $now.toISO() }}"}
+      ]}}},
+      "type":"@n8n/n8n-nodes-langchain.documentDefaultDataLoader","typeVersion":1.1,"position":[752,560],"id":"f19d57a5-7a49-446f-90f6-0c152f4159fb","name":"Default Data Loader"
+    },
+    {
+      "parameters":{"chunkOverlap":150,"options":{}},"type":"@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter","typeVersion":1,"position":[784,768],"id":"52ad701b-0df2-4f81-94c7-55f3d9048594","name":"Recursive Character Text Splitter"
+    },
+    {
+      "parameters":{"assignments":{"assignments":[
+        {"id":"910ba268-efe7-494e-beb9-45c3793d5ee4","name":"success","value":true,"type":"boolean"},
+        {"id":"d45c2d95-5654-41ef-bb50-5c6d1d15e08a","name":"message","value":"Document added to the company knowledge base.","type":"string"},
+        {"id":"14247cfe-ae2d-43ca-ad60-1a0a43683aaa","name":"company","value":"={{ $('Upload Company Document').item.json['Company Name'] }}","type":"string"},
+        {"id":"c27cecb5-32b9-4f90-84a3-3613a1c66e67","name":"category","value":"={{ $('Upload Company Document').item.json['Document Category'] }}","type":"string"},
+        {"id":"d21f08fd-1eca-4118-b9d7-d5406a995b65","name":"file_name","value":"={{ Object.values($('Upload Company Document').item.binary ?? {})[0]?.fileName || 'uploaded-document' }}","type":"string"},
+        {"id":"e726e6c7-30cf-46b2-8da7-0f55a4d84758","name":"indexed_at","value":"={{ $now.toISO() }}","type":"string"}
+      ]},"options":{}},
+      "type":"n8n-nodes-base.set","typeVersion":3.4,"position":[992,352],"id":"f7929b19-0804-419a-9835-f77f8fe89366","name":"Upload Complete"
+    },
+    {
+      "parameters":{"content":"## Credentials required\n\n**Supabase Vector Store**\n- Host: `https://YOUR_PROJECT_REF.supabase.co`\n- Secret: configure the Supabase `service_role` key inside n8n credentials\n\n**Embeddings Google Gemini**\n- Configure your Google Gemini API key inside n8n credentials\n- Model: `models/gemini-embedding-001`\n\nThis public export intentionally contains no API keys or secrets.","height":330,"width":470},
+      "type":"n8n-nodes-base.stickyNote","typeVersion":1,"position":[592,0],"id":"45ee8940-e78c-4e19-89b4-196bd4ca03a4","name":"Credential Notes"
+    }
+  ],
+  "connections": {
+    "Upload Company Document":{"main":[[{"node":"Supabase Vector Store","type":"main","index":0}]]},
+    "Supabase Vector Store":{"main":[[{"node":"Upload Complete","type":"main","index":0}]]},
+    "Embeddings Google Gemini":{"ai_embedding":[[{"node":"Supabase Vector Store","type":"ai_embedding","index":0}]]},
+    "Default Data Loader":{"ai_document":[[{"node":"Supabase Vector Store","type":"ai_document","index":0}]]},
+    "Recursive Character Text Splitter":{"ai_textSplitter":[[{"node":"Default Data Loader","type":"ai_textSplitter","index":0}]]}
+  },
+  "active": false,
+  "settings": {"executionOrder":"v1","binaryMode":"separate"}
+}
