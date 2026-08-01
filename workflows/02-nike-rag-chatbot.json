@@ -1,0 +1,74 @@
+{
+  "name": "02 - Nike RAG Chatbot",
+  "nodes": [
+    {
+      "parameters": {"options": {}},
+      "type": "@n8n/n8n-nodes-langchain.chatTrigger",
+      "typeVersion": 1.1,
+      "position": [0,0],
+      "id": "6664cea8-4b4d-45e3-9475-c493e27003e6",
+      "name": "When chat message received"
+    },
+    {
+      "parameters": {"options": {"maxOutputTokens":1024,"temperature":0.1}},
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [208,240],
+      "id": "7e95de0f-f3c8-4b7d-8132-fa98aaaf754b",
+      "name": "Gemini Answer Model"
+    },
+    {
+      "parameters": {"modelName":"models/gemini-embedding-001"},
+      "type": "@n8n/n8n-nodes-langchain.embeddingsGoogleGemini",
+      "typeVersion": 1,
+      "position": [544,464],
+      "id": "9686f5e3-25f2-4af7-adad-70076998c1ec",
+      "name": "Gemini Query Embeddings"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.chatInput }}",
+        "options": {
+          "systemMessage": "You are an unofficial Nike knowledge-base assistant created for an educational portfolio demonstration.\n\nFor every question about Nike, Nike products, services, membership, apps, sizing, shipping, returns, sustainability, product care, company information, or customer support, you MUST first use the Supabase Nike Knowledge tool.\n\nNever answer Nike-related factual questions from your own general knowledge.\n\nUse only the context returned by the Supabase Nike Knowledge tool.\n\nIf the retrieved context does not contain enough information to answer, respond exactly:\n\nI could not find that information in the Nike knowledge base.\n\nClearly distinguish regional policies. Do not assume that a United States policy applies to other countries.\n\nDo not claim that this chatbot is operated by, affiliated with, or endorsed by Nike.\n\nKeep answers clear, helpful, and concise."
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [304,0],
+      "id": "fca78b93-1d28-49ec-a61c-d31c63b29032",
+      "name": "Nike RAG Agent"
+    },
+    {
+      "parameters": {
+        "mode": "retrieve-as-tool",
+        "toolDescription": "Search the official public Nike knowledge base stored in Supabase. Always use this tool before answering questions about Nike, its company information, products, services, membership, apps, sizing, orders, shipping, returns, sustainability, product care, or customer support.",
+        "tableName": {"__rl":true,"value":"documents","mode":"list","cachedResultName":"documents"},
+        "topK": 5,
+        "options": {"queryName":"match_documents"}
+      },
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreSupabase",
+      "typeVersion": 1.3,
+      "position": [544,240],
+      "id": "f75dbd84-360e-4ad4-a64e-255195a26108",
+      "name": "Supabase Nike Knowledge"
+    },
+    {
+      "parameters": {"inputSource":"passthrough"},
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [0,176],
+      "id": "91d08bf0-919a-433c-b281-1170aab8df60",
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "connections": {
+    "When chat message received":{"main":[[{"node":"Nike RAG Agent","type":"main","index":0}]]},
+    "Gemini Answer Model":{"ai_languageModel":[[{"node":"Nike RAG Agent","type":"ai_languageModel","index":0}]]},
+    "Gemini Query Embeddings":{"ai_embedding":[[{"node":"Supabase Nike Knowledge","type":"ai_embedding","index":0}]]},
+    "Supabase Nike Knowledge":{"ai_tool":[[{"node":"Nike RAG Agent","type":"ai_tool","index":0}]]},
+    "When Executed by Another Workflow":{"main":[[{"node":"Nike RAG Agent","type":"main","index":0}]]}
+  },
+  "active": false,
+  "settings": {"executionOrder":"v1","binaryMode":"separate"}
+}
