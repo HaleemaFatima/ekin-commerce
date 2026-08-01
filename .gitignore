@@ -1,0 +1,19 @@
+# Secrets
+.env
+.env.*
+!config/.env.example
+*.pem
+*.key
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs
+*.log
+logs/
+
+# n8n local runtime / credentials
+.n8n/
