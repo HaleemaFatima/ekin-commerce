@@ -1,94 +1,242 @@
 # EKIN — AI Commerce Support System
 
-> A modular n8n internship project combining retrieval-augmented generation, Supabase vector search, secure Shopify test-order lookup, and a WordPress-facing chatbot router.
+> A modular AI customer-support architecture built with **n8n, Supabase, Google Gemini, Shopify, and WordPress**. EKIN combines retrieval-augmented generation (RAG) for company knowledge with privacy-aware Shopify order lookup behind one website chatbot.
 
+![Project](https://img.shields.io/badge/Project-Internship%20Capstone-111827)
 ![n8n](https://img.shields.io/badge/Orchestration-n8n-FF6D5A)
 ![Supabase](https://img.shields.io/badge/Vector%20DB-Supabase-3ECF8E)
 ![Gemini](https://img.shields.io/badge/AI-Google%20Gemini-4285F4)
 ![Shopify](https://img.shields.io/badge/Commerce-Shopify-7AB55C)
-![Status](https://img.shields.io/badge/Project-Completed-success)
+![License](https://img.shields.io/badge/License-MIT-blue)
+![Status](https://img.shields.io/badge/Status-Completed-success)
 
-## Overview
+## Why EKIN Exists
 
-EKIN is a multi-workflow customer-support architecture built as an internship project. It supports two different classes of requests through one conversational interface:
+A real support chatbot should not treat every question the same way.
 
-1. **Company knowledge questions** are answered through a grounded RAG pipeline backed by Supabase and Gemini embeddings.
-2. **Order-status requests** are handled through a Shopify test-order workflow that verifies the checkout email before exposing order information.
+Some requests are **public knowledge questions** such as company information, products, returns, sizing, or sustainability. Others involve **private commerce data** such as an individual customer's order status and tracking information.
 
-A fourth workflow acts as the public control plane, normalizing frontend input and routing each request to the correct backend path.
+EKIN separates those responsibilities into independent workflows and routes each request to the correct backend path:
 
-This is intentionally not a single "AI chatbot" workflow. The system separates ingestion, retrieval, private commerce access, and request routing so each component can be tested, secured, and maintained independently.
+- **Company questions → RAG** using Gemini embeddings + Supabase vector search.
+- **Order questions → Shopify** only after the order number and checkout email are verified.
+- **Website requests → Router** that detects intent, collects missing fields, invokes the correct child workflow, and normalizes the final response.
 
-## Architecture
+The result is a single conversational interface backed by multiple specialized automation workflows rather than one oversized chatbot flow.
+
+---
+
+## System Architecture
 
 ```mermaid
 flowchart LR
-    UI[WordPress / EKIN Chat UI] --> W4[04 · Main Router]
-    W4 -->|Company question| W2[02 · Nike RAG Chatbot]
-    W4 -->|Verified order request| W3[03 · Shopify Order Lookup]
-    W1[01 · Knowledge Ingestion] --> DB[(Supabase Vector DB)]
-    W2 <--> DB
-    W2 --> GM[Gemini]
-    W3 <--> SH[Shopify Admin GraphQL]
-    W2 --> W4
-    W3 --> W4
-    W4 --> UI
+    USER[Website User] --> WP[WordPress / EKIN Chat UI]
+    WP --> W4[04 · Main Chatbot Router]
+
+    W4 -->|Company / support question| W2[02 · RAG Chatbot]
+    W4 -->|Order request + required fields| W3[03 · Shopify Order Lookup]
+    W4 -->|Greeting / missing fields| LOCAL[Local Router Response]
+
+    DOC[Company Knowledge Document] --> W1[01 · Knowledge Ingestion]
+    W1 --> EMB[Gemini Embeddings]
+    EMB --> DB[(Supabase pgvector)]
+
+    W2 --> QUERY[Gemini Query Embedding]
+    QUERY --> DB
+    DB --> CONTEXT[Relevant Context]
+    CONTEXT --> W2
+    W2 --> ANSWER[Grounded Answer]
+
+    W3 --> SHOPIFY[Shopify Admin GraphQL]
+    SHOPIFY --> VERIFY[Order + Email Verification]
+    VERIFY --> ORDER[Safe Structured Order Response]
+
+    ANSWER --> W4
+    ORDER --> W4
+    LOCAL --> W4
+    W4 --> WP
 ```
 
-See [`docs/architecture.md`](docs/architecture.md) for the detailed request lifecycle.
+Detailed request flow: [`docs/architecture.md`](docs/architecture.md)
 
-## The four n8n workflows
+---
 
-| Workflow | Purpose |
-|---|---|
-| **01 — Company Knowledge Ingestion** | Uploads a company document, splits it into retrieval-friendly chunks, creates Gemini embeddings, and inserts them into Supabase. |
-| **02 — Nike RAG Chatbot** | Uses `match_documents` to retrieve relevant context and generates concise answers grounded in the stored Nike knowledge corpus. |
-| **03 — Shopify Order Lookup** | Normalizes input, queries Shopify test orders through Admin GraphQL, verifies the checkout email, and returns structured order data only after verification. |
-| **04 — EKIN Main Chatbot Router** | Accepts website messages, detects order intent, gathers missing order fields, routes to Workflow 02 or 03, and normalizes the final response. |
+## Core Workflows
 
-The importable JSON exports are in [`workflows/`](workflows/).
+| # | Workflow | Responsibility | Key Engineering Idea |
+|---|---|---|---|
+| **01** | **Company Knowledge Ingestion** | Uploads company documents, loads text, splits content, creates Gemini embeddings, and stores vectors + metadata in Supabase. | Knowledge ingestion is isolated from query-time RAG. |
+| **02** | **Nike RAG Chatbot** | Embeds the user's question, retrieves relevant chunks through `match_documents`, and generates an answer constrained to retrieved context. | The LLM is grounded instead of answering Nike facts from general model memory. |
+| **03** | **Shopify Order Lookup** | Validates input, queries Shopify test orders through Admin GraphQL, verifies checkout email, and returns a reduced order response. | Private order data is protected behind an exact identity-verification gate. |
+| **04** | **EKIN Main Chatbot Router** | Normalizes website input, distinguishes company vs. order intent, gathers missing order fields, invokes the correct child workflow, and standardizes output. | One frontend can safely orchestrate multiple specialized backend capabilities. |
 
-## Supabase RAG layer
+Importable n8n JSON exports: [`workflows/`](workflows/)
 
-The live project uses:
+---
+
+## Request Lifecycle
+
+### Company knowledge request
+
+```text
+User question
+   ↓
+Workflow 04 — Main Router
+   ↓
+Workflow 02 — RAG Chatbot
+   ↓
+Gemini query embedding
+   ↓
+Supabase match_documents()
+   ↓
+Relevant Nike knowledge chunks
+   ↓
+Gemini grounded answer
+   ↓
+Normalized response → Website
+```
+
+### Order lookup request
+
+```text
+Order number + checkout email
+   ↓
+Workflow 04 — Main Router
+   ↓
+Workflow 03 — Shopify Lookup
+   ↓
+Input validation + normalization
+   ↓
+Shopify Admin GraphQL
+   ↓
+Exact order match
+   ↓
+Exact checkout-email verification
+   ↓
+Safe order fields only
+   ↓
+Workflow 04 verification gate
+   ↓
+Website response
+```
+
+---
+
+## RAG / Supabase Layer
+
+The live project uses a PostgreSQL + pgvector retrieval layer with:
 
 - `public.documents`
 - `vector(3072)` embeddings
 - Gemini `models/gemini-embedding-001`
-- HNSW cosine indexing through `halfvec(3072)`
-- GIN metadata indexing
+- HNSW cosine index using `halfvec(3072)`
+- GIN metadata index
 - `public.match_documents(...)`
-- RLS enabled
-- server-side service-role access from n8n
+- Row Level Security enabled
+- server-side Supabase access from n8n
 
-The reproducible SQL is in [`supabase/setup.sql`](supabase/setup.sql).
+The database setup is reproducible from:
 
-## Security model
+[`supabase/setup.sql`](supabase/setup.sql)
 
-Order lookup is deliberately separated from public company knowledge.
+The demo corpus is included as:
 
-A Shopify order is only returned when:
+[`knowledge-base/Nike_Public_Knowledge_Base_RAG.md`](knowledge-base/Nike_Public_Knowledge_Base_RAG.md)
 
-- the request contains a valid order number,
-- the request contains a valid checkout email,
-- the exact order exists in the Shopify test-order search,
-- the stored order email exactly matches the supplied email, and
-- the child workflow returns `verified: true`.
+### Why metadata is stored with each chunk
 
-The router performs a second verification gate before forwarding order fields to the website.
+Workflow 01 attaches information such as company, document category, source filename, and ingestion time. This keeps retrieved chunks traceable and makes the vector store easier to filter or extend later.
 
-See [`SECURITY.md`](SECURITY.md).
+---
 
-## Tech stack
+## Security & Privacy Design
 
-- **n8n** — workflow orchestration and public webhooks
-- **Supabase / PostgreSQL / pgvector** — RAG document and vector storage
-- **Google Gemini** — embeddings and grounded answer generation
-- **Shopify Admin GraphQL** — test-order retrieval
-- **WordPress** — customer-facing EKIN chatbot integration
-- **HTTPS tunneling during local deployment** — public connectivity between WordPress and local n8n
+The order path was intentionally designed differently from the public RAG path.
 
-## Repository structure
+### Order verification
+
+Order information is returned only when all of the following are true:
+
+1. A valid order number is provided.
+2. A valid checkout email is provided.
+3. Shopify returns the requested test order.
+4. The stored order email exactly matches the supplied email.
+5. Workflow 03 returns `verified: true`.
+6. Workflow 04 independently checks the verification result before forwarding order fields.
+
+For failed verification, the workflow returns a generic response instead of revealing whether the order number or email was the incorrect field.
+
+### Additional controls
+
+- Credentials are kept server-side rather than exposed in the website frontend.
+- The public repository contains **sanitized workflow exports** only.
+- Shopify test-order queries are separated from company knowledge retrieval.
+- RAG answers are instructed to use retrieved context rather than unrestricted model knowledge.
+- Invalid or incomplete input is handled through explicit fallback responses.
+- The router returns only the data required by the frontend rather than forwarding raw backend responses.
+
+Full security notes: [`SECURITY.md`](SECURITY.md)
+
+---
+
+## Testing Performed
+
+The completed project was tested across both functional and privacy-sensitive paths.
+
+| Test | Expected Behaviour | Result |
+|---|---|---|
+| Knowledge document ingestion | Document is chunked, embedded, and stored in Supabase | ✅ Passed |
+| Company question | Relevant context is retrieved before answer generation | ✅ Passed |
+| Unsupported knowledge question | Bot uses fallback rather than inventing information | ✅ Passed |
+| Correct order + correct email | Structured order information is returned | ✅ Passed |
+| Correct order + wrong email | No protected order information is exposed | ✅ Passed |
+| Invalid input | User receives a safe validation response | ✅ Passed |
+| Order-intent routing | Request is sent to Shopify workflow | ✅ Passed |
+| Company-intent routing | Request is sent to RAG workflow | ✅ Passed |
+| WordPress → n8n integration | Website request reaches router webhook and receives response | ✅ Passed |
+
+Reusable acceptance checklist: [`docs/testing.md`](docs/testing.md)
+
+---
+
+## Tech Stack
+
+| Technology | Role in EKIN |
+|---|---|
+| **n8n** | Workflow orchestration, webhooks, routing, validation, API calls, and sub-workflow execution |
+| **Supabase** | PostgreSQL database, pgvector document storage, metadata storage, and similarity search |
+| **Google Gemini** | 3072-dimensional embeddings and grounded answer generation |
+| **Shopify Admin GraphQL API** | Test-order retrieval, fulfilment data, tracking information, and line items |
+| **WordPress** | Customer-facing chatbot interface |
+| **HTTPS tunneling** | Connected local development services to the website during integration testing |
+
+---
+
+## Engineering Challenges Solved
+
+### 1. Keeping RAG and order lookup separate
+
+A single LLM agent should not have unrestricted access to both public knowledge and customer commerce data. EKIN uses different workflows and data boundaries for each path.
+
+### 2. Shopify GraphQL request formatting
+
+The order workflow required debugging query structure, request payloads, authentication, and order-search behaviour before the test-order lookup executed reliably.
+
+### 3. Preventing order-data leakage
+
+An order number alone is not treated as sufficient proof. The workflow validates the checkout email against the Shopify response and deliberately uses a generic failure message when verification fails.
+
+### 4. Routing natural-language requests
+
+Users do not always send clean JSON fields. Workflow 04 accepts multiple frontend field names and can extract order numbers and email addresses from natural-language messages before deciding where to route the request.
+
+### 5. Connecting local automation to a website
+
+The project connected a WordPress frontend to an n8n webhook during local development through a public HTTPS tunnel, allowing the full browser → router → backend → browser path to be tested.
+
+---
+
+## Repository Structure
 
 ```text
 ekin-commerce/
@@ -98,102 +246,135 @@ ekin-commerce/
 │   ├── 03-shopify-order-lookup.json
 │   ├── 04-ekin-main-chatbot-router.json
 │   └── README.md
+│
 ├── supabase/
 │   ├── setup.sql
 │   └── README.md
+│
+├── knowledge-base/
+│   ├── Nike_Public_Knowledge_Base_RAG.md
+│   └── README.md
+│
 ├── docs/
 │   ├── architecture.md
 │   ├── testing.md
 │   └── screenshots/
 │       └── README.md
-├── knowledge-base/
-│   └── README.md
+│
 ├── config/
 │   └── .env.example
+│
 ├── SECURITY.md
 ├── NOTICE.md
+├── LICENSE
 ├── .gitignore
 └── README.md
 ```
 
-## Setup
+---
 
-### 1. Supabase
+## Reproducing the Project
 
-Run [`supabase/setup.sql`](supabase/setup.sql) in the target Supabase project.
+### 1. Create the Supabase vector layer
 
-The workflow is designed for a 3072-dimensional embedding column. Ensure the database schema matches the embedding model configuration.
+Run:
 
-### 2. Import n8n workflows
+[`supabase/setup.sql`](supabase/setup.sql)
 
-Import the four files from [`workflows/`](workflows/) in numerical order.
+This creates the schema required by the workflows, including the 3072-dimensional vector column and `match_documents` function.
 
-After import:
+### 2. Import the n8n workflows
 
-- configure the Supabase credential,
-- configure the Google Gemini credential,
-- configure private Shopify credentials,
-- re-select Workflows 02 and 03 inside Workflow 04's **Execute Workflow** nodes,
-- activate child workflows, then the main router.
+Import the JSON files from [`workflows/`](workflows/) in numerical order.
 
-### 3. Ingest the knowledge corpus
+### 3. Configure credentials privately
 
-Run Workflow 01 and upload the company knowledge document.
+Create n8n credentials for:
 
-### 4. Test RAG
+- Supabase
+- Google Gemini
+- Shopify
 
-Ask a question covered by the stored corpus and verify that the RAG agent retrieves context from Supabase before answering.
+Do **not** hard-code real secrets into workflow exports intended for GitHub.
 
-### 5. Test Shopify
+### 4. Connect child workflows
 
-Use a Shopify **test order**.
+Inside Workflow 04, re-select:
 
-Test both:
+- Workflow 02 in the Nike RAG execution node
+- Workflow 03 in the Shopify execution node
 
-- correct order + correct checkout email,
-- correct order + wrong checkout email.
+### 5. Ingest the knowledge base
 
-The second test must not reveal protected order information.
+Run Workflow 01 and upload a supported document such as the included Nike public knowledge corpus.
 
-### 6. Connect the frontend
+### 6. Activate and test
 
-Point the WordPress/EKIN chatbot to Workflow 04's production webhook URL.
+Activate the child workflows first, then Workflow 04.
 
-## Testing
+Recommended minimum tests:
 
-A reusable acceptance checklist is available at [`docs/testing.md`](docs/testing.md).
+```text
+Company question → grounded answer
+Unknown company question → fallback
+Correct order + correct email → success
+Correct order + wrong email → blocked
+Missing email/order number → clarification
+```
 
-Core tests completed during the project included:
+### 7. Connect a frontend
 
-- successful knowledge ingestion,
-- grounded RAG answers,
-- unsupported-question fallback,
-- valid test-order lookup,
-- wrong-email privacy rejection,
-- malformed-input rejection,
-- router classification,
-- WordPress-to-n8n webhook integration.
+Send website chat messages to Workflow 04's production webhook and render the normalized JSON response in the frontend.
 
-## Public repository safety
+---
 
-The workflow exports in this repository are **sanitized**:
+## Example Capabilities
 
-- real Shopify credentials removed,
-- n8n credential references removed,
-- Supabase/Gemini secrets not included,
-- instance-specific workflow metadata removed where practical,
-- router child-workflow bindings cleared for portable import.
+EKIN can support interactions such as:
 
-Use [`config/.env.example`](config/.env.example) only as a configuration inventory. Never commit real secrets.
+```text
+"What does Nike Membership include?"
+"How do Nike returns work?"
+"Tell me about Nike sustainability initiatives."
+"Where is my order #1001? My checkout email is user@example.com"
+```
 
-## Project status
+The first three requests are routed through RAG. The final request is routed through the private Shopify verification path.
+
+---
+
+## What This Project Demonstrates
+
+This project goes beyond a single chatbot prompt and demonstrates:
+
+- modular n8n workflow architecture,
+- retrieval-augmented generation,
+- vector databases and embedding search,
+- REST/webhook-style integration,
+- Shopify GraphQL integration,
+- input validation and normalization,
+- privacy-aware backend design,
+- multi-workflow routing,
+- safe failure handling,
+- WordPress integration,
+- end-to-end system testing.
+
+## Project Status
 
 **Completed internship project / portfolio demonstration.**
 
-The final system demonstrates modular automation, RAG retrieval, API integration, privacy-aware order verification, backend routing, failure handling, and web delivery in one end-to-end architecture.
+The current repository contains the sanitized workflow exports, database setup, RAG corpus, architecture notes, testing documentation, configuration template, and security documentation required to understand and reproduce the system.
+
+---
+
+## License
+
+The original code, workflow logic, SQL, and project documentation authored for EKIN are released under the **MIT License**. See [`LICENSE`](LICENSE).
+
+Third-party trademarks, brand names, and third-party source material are not granted or relicensed by the MIT License. See [`NOTICE.md`](NOTICE.md).
 
 ## Disclaimer
 
-EKIN is an independent educational project. The Nike knowledge demo is not affiliated with, endorsed by, or operated by NIKE, Inc. Shopify order functionality is demonstrated with test-order logic.
+EKIN is an independent educational internship/portfolio project. It is not produced, approved, endorsed, sponsored, or operated by NIKE, Inc. The Nike-related RAG demonstration uses publicly available material for educational retrieval testing. Nike and related marks remain the property of their respective owners.
 
-See [`NOTICE.md`](NOTICE.md).
+The Shopify integration demonstrates test-order lookup and should not be interpreted as an official Nike order system.
